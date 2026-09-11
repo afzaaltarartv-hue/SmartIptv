@@ -15,7 +15,7 @@
   </head>
   <body class="bg-zinc-950 text-white min-h-screen" style="background-color: #090a0f; color: #ffffff;">
     <div id="root">
-      <div style="display: flex; min-height: 100vh; flex-direction: column; align-items: center; justify-content: center; background-color: #090a0f; color: #a1a1aa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+      <div style="display: flex; min-height: 100vh; flex-direction: column; align-items: center; justify-content: center; background-color: #090a0f; color: #a1a1aa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; text-align: center;">
         <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #f59e0b, #ea580c); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(234, 88, 12, 0.3);">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect width="20" height="15" x="2" y="7" rx="2" ry="2"></rect>
@@ -23,9 +23,31 @@
           </svg>
         </div>
         <div style="font-size: 15px; font-weight: 600; color: #ffffff; letter-spacing: -0.01em;">Universal M3U IPTV</div>
-        <div style="font-size: 12px; color: #71717a; margin-top: 4px;">Loading player engine...</div>
+        <div id="loading-subtext" style="font-size: 12px; color: #71717a; margin-top: 4px;">Loading player engine...</div>
+        <div id="deployment-notice" style="display: none; max-width: 380px; margin-top: 24px; padding: 16px; border-radius: 14px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); text-align: left; font-size: 12px; line-height: 1.6; color: #e4e4e7;">
+          <div style="font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; items-center; gap: 6px;">
+            ⚙️ GitHub Pages Setup Required
+          </div>
+          <p style="margin: 0 0 8px 0;">GitHub Pages is serving the raw repository source files instead of the production build.</p>
+          <div style="background: rgba(0, 0, 0, 0.4); padding: 10px; border-radius: 8px; font-size: 11px;">
+            1. Open GitHub repo: <b>Settings → Pages</b><br/>
+            2. Under <b>Build and deployment → Source</b><br/>
+            3. Select <b>GitHub Actions</b> <i>(recommended)</i> or branch <b>gh-pages</b>
+          </div>
+        </div>
       </div>
     </div>
+    <script>
+      // Fallback check: If the page is on GitHub Pages and React bundle didn't mount within 4 seconds:
+      setTimeout(function() {
+        var notice = document.getElementById('deployment-notice');
+        var subtext = document.getElementById('loading-subtext');
+        if (notice && document.getElementById('root') && document.getElementById('root').contains(notice)) {
+          notice.style.display = 'block';
+          if (subtext) subtext.innerText = 'Build deployment pending';
+        }
+      }, 3500);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
