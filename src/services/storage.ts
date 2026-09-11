@@ -35,32 +35,38 @@ export const DEFAULT_SETTINGS: PlayerSettings = {
 
 class StorageService {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private memoryPlaylists: Map<string, PlaylistMeta> = new Map();
+  private memoryChannels: Map<string, Channel[]> = new Map();
 
-  private getDB(): Promise<IDBDatabase> {
+  private getDB(): Promise<IDBDatabase | null> {
     if (this.dbPromise) return this.dbPromise;
 
-    this.dbPromise = new Promise((resolve, reject) => {
+    this.dbPromise = new Promise((resolve) => {
       if (typeof window === 'undefined' || !window.indexedDB) {
-        reject(new Error('IndexedDB not supported'));
+        resolve(null);
         return;
       }
 
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
-          db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains(CHANNELS_STORE)) {
-          const channelStore = db.createObjectStore(CHANNELS_STORE, { keyPath: 'id' });
-          channelStore.createIndex('playlistId', 'playlistId', { unique: false });
-          channelStore.createIndex('group', 'group', { unique: false });
-        }
-      };
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
+            db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains(CHANNELS_STORE)) {
+            const channelStore = db.createObjectStore(CHANNELS_STORE, { keyPath: 'id' });
+            channelStore.createIndex('playlistId', 'playlistId', { unique: false });
+            channelStore.createIndex('group', 'group', { unique: false });
+          }
+        };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
     });
 
     return this.dbPromise;
@@ -164,77 +170,126 @@ class StorageService {
     }
   }
 
-  // IndexedDB Playlists & Channels
+  // IndexedDB Playlists & Channels (with in-memory fallback)
   async savePlaylistWithChannels(playlist: PlaylistMeta, channels: Channel[]): Promise<void> {
+    this.memoryPlaylists.set(playlist.id, playlist);
+    this.memoryChannels.set(playlist.id, channels);
+
     const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([PLAYLISTS_STORE, CHANNELS_STORE], 'readwrite');
+    if (!db) return;
 
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction([PLAYLISTS_STORE, CHANNELS_STORE], 'readwrite');
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => resolve();
 
-      const playlistStore = transaction.objectStore(PLAYLISTS_STORE);
-      playlistStore.put(playlist);
+        const playlistStore = transaction.objectStore(PLAYLISTS_STORE);
+        playlistStore.put(playlist);
 
-      const channelStore = transaction.objectStore(CHANNELS_STORE);
-      // Attach playlistId to channels for indexing
-      for (const channel of channels) {
-        channelStore.put({
-          ...channel,
-          playlistId: playlist.id,
-        });
+        const channelStore = transaction.objectStore(CHANNELS_STORE);
+        for (const channel of channels) {
+          channelStore.put({
+            ...channel,
+            playlistId: playlist.id,
+          });
+        }
+      } catch {
+        resolve();
       }
     });
   }
 
   async getAllPlaylists(): Promise<PlaylistMeta[]> {
     const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(PLAYLISTS_STORE, 'readonly');
-      const store = transaction.objectStore(PLAYLISTS_STORE);
-      const request = store.getAll();
+    if (!db) {
+      return Array.from(this.memoryPlaylists.values());
+    }
 
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(PLAYLISTS_STORE, 'readonly');
+        const store = transaction.objectStore(PLAYLISTS_STORE);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const results: PlaylistMeta[] = request.result || [];
+          if (results.length === 0 && this.memoryPlaylists.size > 0) {
+            resolve(Array.from(this.memoryPlaylists.values()));
+          } else {
+            // Keep memory cache in sync
+            for (const pl of results) {
+              this.memoryPlaylists.set(pl.id, pl);
+            }
+            resolve(results);
+          }
+        };
+        request.onerror = () => resolve(Array.from(this.memoryPlaylists.values()));
+      } catch {
+        resolve(Array.from(this.memoryPlaylists.values()));
+      }
     });
   }
 
   async getChannelsForPlaylist(playlistId: string): Promise<Channel[]> {
     const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(CHANNELS_STORE, 'readonly');
-      const store = transaction.objectStore(CHANNELS_STORE);
-      const index = store.index('playlistId');
-      const request = index.getAll(playlistId);
+    if (!db) {
+      return this.memoryChannels.get(playlistId) || [];
+    }
 
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(CHANNELS_STORE, 'readonly');
+        const store = transaction.objectStore(CHANNELS_STORE);
+        const index = store.index('playlistId');
+        const request = index.getAll(playlistId);
+
+        request.onsuccess = () => {
+          const res = request.result || [];
+          if (res.length === 0 && this.memoryChannels.has(playlistId)) {
+            resolve(this.memoryChannels.get(playlistId) || []);
+          } else {
+            this.memoryChannels.set(playlistId, res);
+            resolve(res);
+          }
+        };
+        request.onerror = () => resolve(this.memoryChannels.get(playlistId) || []);
+      } catch {
+        resolve(this.memoryChannels.get(playlistId) || []);
+      }
     });
   }
 
   async deletePlaylist(playlistId: string): Promise<void> {
+    this.memoryPlaylists.delete(playlistId);
+    this.memoryChannels.delete(playlistId);
+
     const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([PLAYLISTS_STORE, CHANNELS_STORE], 'readwrite');
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+    if (!db) return;
 
-      // Delete playlist meta
-      const playlistStore = transaction.objectStore(PLAYLISTS_STORE);
-      playlistStore.delete(playlistId);
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction([PLAYLISTS_STORE, CHANNELS_STORE], 'readwrite');
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => resolve();
 
-      // Delete associated channels
-      const channelStore = transaction.objectStore(CHANNELS_STORE);
-      const index = channelStore.index('playlistId');
-      const request = index.openKeyCursor(IDBKeyRange.only(playlistId));
+        const playlistStore = transaction.objectStore(PLAYLISTS_STORE);
+        playlistStore.delete(playlistId);
 
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (cursor) {
-          channelStore.delete(cursor.primaryKey);
-          cursor.continue();
-        }
-      };
+        const channelStore = transaction.objectStore(CHANNELS_STORE);
+        const index = channelStore.index('playlistId');
+        const request = index.openKeyCursor(IDBKeyRange.only(playlistId));
+
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (cursor) {
+            channelStore.delete(cursor.primaryKey);
+            cursor.continue();
+          }
+        };
+      } catch {
+        resolve();
+      }
     });
   }
 

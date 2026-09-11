@@ -63,7 +63,16 @@ export default function App() {
 
     const loadData = async () => {
       try {
-        const storedPlaylists = await storage.getAllPlaylists();
+        let storedPlaylists = await storage.getAllPlaylists();
+        
+        // Auto-seed curated streams on first launch for immediate playback
+        if (storedPlaylists.length === 0) {
+          const { playlist, channels: curatedChannels } = getCuratedPlaylist();
+          await storage.savePlaylistWithChannels(playlist, curatedChannels);
+          storage.setActivePlaylistId(playlist.id);
+          storedPlaylists = [playlist];
+        }
+
         setPlaylists(storedPlaylists);
 
         let currentPlId = storage.getActivePlaylistId();
