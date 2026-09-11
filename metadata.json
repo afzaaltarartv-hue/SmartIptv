@@ -1,0 +1,6 @@
+{
+  "name": "Universal M3U IPTV Player",
+  "description": "Universal low-latency M3U IPTV web player with Smart TV & iPhone support, gesture controls, high-fidelity audio equalizer, and cross-platform sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
