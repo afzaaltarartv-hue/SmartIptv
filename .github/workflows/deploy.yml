@@ -16,9 +16,6 @@ concurrency:
   group: 'pages'
   cancel-in-progress: true
 
-env:
-  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node24
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -36,7 +33,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci || npm install
 
       - name: Build Application
         run: npm run build
